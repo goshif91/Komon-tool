@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>公文書ZIP確認ツール</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:"Yu Mincho","游明朝",serif; background:#f0f2f5; min-height:100vh; color:#1a1a1a; }
+
+  header { background:#1a3a5c; color:white; padding:14px 24px; display:flex; align-items:center; gap:12px; box-shadow:0 2px 8px rgba(0,0,0,.2); }
+  header h1 { font-size:16px; font-family:"Yu Gothic","游ゴシック",sans-serif; font-weight:600; letter-spacing:.05em; }
+  header .badge { font-size:11px; background:rgba(255,255,255,.2); padding:2px 8px; border-radius:10px; font-family:sans-serif; }
+
+  #drop-zone { margin:40px auto; max-width:580px; border:2px dashed #8aacc8; border-radius:12px; background:white; padding:60px 30px; text-align:center; cursor:pointer; transition:all .2s; }
+  #drop-zone:hover, #drop-zone.drag-over { border-color:#1a3a5c; background:#f0f5ff; }
+  #drop-zone .icon { font-size:48px; margin-bottom:16px; display:block; }
+  #drop-zone p { font-family:"Yu Gothic",sans-serif; color:#555; font-size:15px; margin-bottom:8px; }
+  #drop-zone .sub { font-size:12px; color:#999; }
+  #file-input { display:none; }
+  #browse-btn { margin-top:20px; padding:10px 28px; background:#1a3a5c; color:white; border:none; border-radius:6px; font-family:"Yu Gothic",sans-serif; font-size:14px; cursor:pointer; }
+  #browse-btn:hover { background:#254d7a; }
+
+  #result-area { display:none; max-width:980px; margin:0 auto 40px; padding:0 16px; }
+
+  /* ツールバー */
+  .toolbar { display:flex; align-items:center; gap:10px; margin-bottom:16px; flex-wrap:wrap; }
+  .toolbar h2 { font-size:14px; font-family:"Yu Gothic",sans-serif; color:#333; flex:1; min-width:200px; }
+  .btn { padding:8px 18px; border:none; border-radius:6px; font-family:"Yu Gothic",sans-serif; font-size:13px; cursor:pointer; display:inline-flex; align-items:center; gap:6px; }
+  .btn-primary { background:#1a3a5c; color:white; }
+  .btn-primary:hover { background:#254d7a; }
+  .btn-secondary { background:white; color:#555; border:1px solid #ccc; }
+  .btn-secondary:hover { background:#f0f0f0; }
+  .btn-drive { background:#34a853; color:white; }
+  .btn-drive:hover { background:#2d9249; }
+
+  /* 申請者サマリーバー */
+  .summary-bar { background:white; border-radius:8px; padding:14px 20px; margin-bottom:16px; box-shadow:0 1px 6px rgba(0,0,0,.08); display:flex; flex-wrap:wrap; gap:16px; align-items:center; }
+  .summary-bar .summary-item { display:flex; flex-direction:column; }
+  .summary-bar .summary-label { font-size:11px; color:#888; font-family:"Yu Gothic",sans-serif; margin-bottom:2px; }
+  .summary-bar .summary-value { font-size:15px; font-weight:bold; color:#1a3a5c; }
+  .summary-bar .summary-value.small { font-size:13px; }
+  .summary-bar .divider { width:1px; background:#e0e0e0; align-self:stretch; }
+  .filename-preview { font-size:12px; color:#666; font-family:"Yu Gothic",sans-serif; background:#f5f5f5; padding:4px 10px; border-radius:4px; margin-top:4px; }
+
+  /* ドキュメントカード */
+  .doc-card { background:white; border-radius:10px; box-shadow:0 2px 12px rgba(0,0,0,.08); margin-bottom:20px; overflow:hidden; }
+  .doc-card-header { background:#1a3a5c; color:white; padding:12px 20px; display:flex; align-items:center; gap:10px; font-family:"Yu Gothic",sans-serif; }
+  .doc-card-header .doc-type { font-size:11px; background:rgba(255,255,255,.2); padding:2px 8px; border-radius:10px; white-space:nowrap; }
+  .doc-card-header .doc-title { font-size:14px; font-weight:600; }
+
+  /* 返戻票 */
+  .henrei-body { padding:24px; }
+  .addr-block { margin-bottom:20px; padding-bottom:16px; border-bottom:1px solid #e0e0e0; }
+  .addr-block .postal { font-size:12px; color:#555; margin-bottom:4px; }
+  .addr-block .address { font-size:13px; margin-bottom:4px; }
+  .addr-block .name { font-size:16px; font-weight:bold; }
+  .addr-block .ref-no { font-size:11px; color:#888; margin-top:4px; }
+  .henrei-section-title { font-size:16px; font-weight:bold; text-align:center; padding:10px; border-bottom:2px solid #1a3a5c; margin-bottom:16px; font-family:"Yu Gothic",sans-serif; }
+  .henrei-intro { font-size:13px; line-height:1.8; margin-bottom:12px; }
+  .henrei-notes { font-size:12px; line-height:1.8; background:#f9f9f9; padding:10px 14px; border-left:3px solid #aac; margin-bottom:16px; color:#555; }
+  .info-grid { display:grid; grid-template-columns:130px 1fr; border:1px solid #ccc; border-radius:6px; overflow:hidden; margin-bottom:16px; }
+  .info-grid .lbl { background:#e8edf3; padding:10px 12px; font-size:13px; font-family:"Yu Gothic",sans-serif; font-weight:600; color:#1a3a5c; border-bottom:1px solid #ccc; display:flex; align-items:flex-start; padding-top:11px; }
+  .info-grid .val { padding:10px 14px; font-size:13px; line-height:1.7; border-bottom:1px solid #ccc; background:white; }
+  .info-grid > *:nth-last-child(-n+2) { border-bottom:none; }
+  .row-alert .lbl { background:#fdf0f0; color:#b00; }
+  .row-alert .val { background:#fff8f8; color:#c00; font-weight:500; }
+  .row-deadline .lbl { background:#fff8e1; color:#8a6000; }
+  .row-deadline .val { background:#fffdf0; color:#8a6000; font-weight:bold; font-size:15px; }
+  .sender-block { margin-top:16px; border:1px solid #ccc; border-radius:6px; padding:12px 16px; background:#f9f9f9; font-size:13px; line-height:1.8; color:#555; }
+  .sender-block .slabel { font-size:11px; color:#999; font-family:"Yu Gothic",sans-serif; margin-bottom:4px; }
+  .sender-block .sname { font-weight:bold; color:#333; }
+  .date-row { text-align:right; font-size:13px; color:#555; margin-top:16px; padding-top:12px; border-top:1px solid #eee; }
+  .org-name { font-weight:bold; color:#1a3a5c; }
+
+  /* 汎用帳票 */
+  .generic-body { padding:24px; }
+  .generic-addr { margin-bottom:20px; padding-bottom:16px; border-bottom:1px solid #e0e0e0; display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; }
+  .generic-addr .to-block .postal { font-size:12px; color:#555; margin-bottom:3px; }
+  .generic-addr .to-block .addr { font-size:13px; }
+  .generic-addr .to-block .bizname { font-size:14px; font-weight:bold; margin-top:2px; }
+  .generic-addr .to-block .person { font-size:15px; font-weight:bold; }
+  .generic-addr .meta-block { text-align:right; font-size:12px; color:#888; line-height:1.8; }
+  .generic-title { font-size:16px; font-weight:bold; text-align:center; padding:10px; border-bottom:2px solid #1a3a5c; margin-bottom:20px; font-family:"Yu Gothic",sans-serif; }
+  .insured-section { margin-bottom:16px; }
+  .insured-header { background:#e8edf3; border-radius:6px 6px 0 0; padding:8px 14px; font-size:13px; font-family:"Yu Gothic",sans-serif; font-weight:600; color:#1a3a5c; border:1px solid #ccc; border-bottom:none; }
+  .insured-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); border:1px solid #ccc; border-radius:0 0 6px 6px; overflow:hidden; }
+  .igcell { padding:8px 12px; border-bottom:1px solid #eee; border-right:1px solid #eee; }
+  .igcell .igl { font-size:11px; color:#888; font-family:"Yu Gothic",sans-serif; margin-bottom:2px; }
+  .igcell .igv { font-size:13px; }
+  .dependents-table { width:100%; border-collapse:collapse; margin:10px 0 16px; font-size:13px; }
+  .dependents-table th { background:#e8edf3; padding:7px 10px; text-align:center; border:1px solid #ccc; font-family:"Yu Gothic",sans-serif; font-size:12px; color:#1a3a5c; }
+  .dependents-table td { padding:7px 10px; border:1px solid #ddd; text-align:center; vertical-align:middle; }
+  .dependents-table tr:nth-child(even) td { background:#fafafa; }
+  .tag { padding:2px 8px; border-radius:10px; font-size:11px; font-family:"Yu Gothic",sans-serif; }
+  .tag-nintei { background:#e8f5e9; color:#1a6000; }
+  .tag-gaito { background:#e3f2fd; color:#0d47a1; }
+  .tag-other { background:#fff3e0; color:#e65100; }
+  .oshirase-block { margin-top:16px; background:#f5f7fa; border-radius:6px; padding:12px 16px; font-size:12px; line-height:1.8; color:#555; border:1px solid #ddd; }
+  .oshirase-label { font-size:11px; color:#888; font-family:"Yu Gothic",sans-serif; margin-bottom:6px; }
+  .kyoshi-block { margin-top:12px; background:#fff8f0; border-radius:6px; padding:12px 16px; font-size:11px; line-height:1.8; color:#777; border:1px solid #f0e0cc; }
+  .kyoshi-label { font-size:11px; color:#999; font-family:"Yu Gothic",sans-serif; margin-bottom:4px; }
+
+  /* 表紙 */
+  .kagami-body { padding:24px; }
+  .kagami-meta { font-size:12px; color:#888; margin-bottom:16px; font-family:"Yu Gothic",sans-serif; }
+  .kagami-to .kaff { font-size:13px; color:#555; }
+  .kagami-to .kname { font-size:18px; font-weight:bold; margin-bottom:16px; }
+  .kagami-author { text-align:right; font-size:13px; color:#333; margin-bottom:20px; border-bottom:1px solid #eee; padding-bottom:16px; }
+  .kagami-main { font-size:14px; line-height:1.9; }
+  .kagami-main p { margin-bottom:8px; }
+
+  /* PDF */
+  .pdf-wrap { background:#525659; }
+  .pdf-toolbar { background:#3d3d3d; padding:8px 16px; display:flex; align-items:center; gap:10px; }
+  .pdf-toolbar button { padding:4px 12px; background:#555; color:white; border:none; border-radius:4px; cursor:pointer; font-size:12px; font-family:"Yu Gothic",sans-serif; }
+  .pdf-toolbar button:hover { background:#777; }
+  .pdf-toolbar .zlabel { font-size:12px; color:#ddd; font-family:"Yu Gothic",sans-serif; }
+  .pdf-pages { padding:16px; display:flex; flex-direction:column; align-items:center; gap:12px; max-height:85vh; overflow-y:auto; }
+  .pdf-page-wrap canvas { display:block; box-shadow:0 2px 8px rgba(0,0,0,.5); }
+  .pdf-loading { text-align:center; padding:40px; color:#ccc; font-family:"Yu Gothic",sans-serif; font-size:14px; }
+
+  .error-msg { background:#fff0f0; border:1px solid #fcc; border-radius:8px; padding:16px 20px; color:#c00; font-family:"Yu Gothic",sans-serif; font-size:14px; margin:16px; }
+  #loading { display:none; text-align:center; padding:40px; font-family:"Yu Gothic",sans-serif; color:#555; }
+  .spinner { width:32px; height:32px; border:3px solid #e0e0e0; border-top-color:#1a3a5c; border-radius:50%; animation:spin .8s linear infinite; margin:0 auto 12px; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* Gドライブモーダル */
+  .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:100; align-items:center; justify-content:center; }
+  .modal-overlay.show { display:flex; }
+  .modal { background:white; border-radius:12px; padding:28px; max-width:480px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,.2); }
+  .modal h3 { font-family:"Yu Gothic",sans-serif; font-size:16px; margin-bottom:16px; color:#1a3a5c; }
+  .modal p { font-size:13px; color:#555; line-height:1.8; margin-bottom:12px; }
+  .modal .fname { font-family:"Yu Gothic",sans-serif; font-size:13px; background:#f5f5f5; padding:8px 12px; border-radius:6px; margin-bottom:16px; color:#333; word-break:break-all; }
+  .modal-btns { display:flex; gap:10px; justify-content:flex-end; margin-top:20px; }
+  .folder-setting { margin-bottom:16px; }
+  .folder-setting label { font-size:12px; color:#888; font-family:"Yu Gothic",sans-serif; display:block; margin-bottom:6px; }
+  .folder-row { display:flex; gap:8px; align-items:center; }
+  .folder-row input { flex:1; padding:8px 12px; border:1px solid #ccc; border-radius:6px; font-size:13px; font-family:"Yu Gothic",sans-serif; color:#333; background:#fafafa; }
+  .folder-row input:focus { outline:none; border-color:#1a3a5c; background:white; }
+  .btn-folder-pick { padding:7px 14px; background:#f0f0f0; border:1px solid #ccc; border-radius:6px; font-size:12px; font-family:"Yu Gothic",sans-serif; cursor:pointer; white-space:nowrap; }
+  .btn-folder-pick:hover { background:#e0e0e0; }
+  .folder-saved-badge { font-size:11px; color:#34a853; font-family:"Yu Gothic",sans-serif; margin-top:4px; display:none; }
+  .divider-line { border:none; border-top:1px solid #eee; margin:16px 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📄 公文書ZIP 確認ツール</h1>
+  <span class="badge">XML・PDF・各種帳票 対応</span>
+</header>
+
+<div id="drop-zone" onclick="document.getElementById('file-input').click()">
+  <span class="icon">🗂️</span>
+  <p>ZIPファイルをここにドロップ</p>
+  <p class="sub">返戻・決定通知書など（XML/PDF・入れ子ZIP・複数ファイル対応）</p>
+  <button id="browse-btn" onclick="event.stopPropagation();document.getElementById('file-input').click()">ファイルを選択</button>
+</div>
+<input type="file" id="file-input" accept=".zip" multiple>
+
+<div id="loading"><div class="spinner"></div><p>ファイルを読み込み中...</p></div>
+
+<div id="result-area">
+  <div class="toolbar">
+    <h2 id="result-title"></h2>
+    <button class="btn btn-secondary" onclick="resetAll()">🔄 別のファイルを開く</button>
+    <button class="btn btn-primary" onclick="downloadPdf()" id="btn-download">📄 PDFとして保存</button>
+    <button class="btn btn-drive" onclick="showDriveModal()" id="btn-drive">📂 Gドライブへ保存</button>
+  </div>
+  <!-- 申請者サマリー -->
+  <div class="summary-bar" id="summary-bar"></div>
+  <div id="docs-container"></div>
+</div>
+
+<!-- Gドライブ保存モーダル -->
+<div class="modal-overlay" id="drive-modal">
+  <div class="modal">
+    <h3>📂 Google ドライブへ保存</h3>
+
+    <!-- フォルダ指定 -->
+    <div class="folder-setting">
+      <label>保存先フォルダ（任意・記憶されます）</label>
+      <div class="folder-row">
+        <input type="text" id="folder-id-input" placeholder="フォルダIDを貼り付け" oninput="saveFolderId()">
+        <button class="btn-folder-pick" onclick="openDrive()">📁 Driveを開く</button>
+      </div>
+      <div style="font-size:11px;color:#999;margin-top:4px;">DriveのフォルダURLの末尾部分：/folders/<b>ここ</b></div>
+      <div id="folder-saved-badge" class="folder-saved-badge"></div>
+    </div>
+
+    <hr class="divider-line">
+    <p style="margin-bottom:6px;">保存ファイル名</p>
+    <div class="fname" id="modal-fname"></div>
+
+    <div id="drive-status" style="font-size:13px;margin:10px 0;display:none;"></div>
+
+    <div class="modal-btns">
+      <button class="btn btn-secondary" onclick="closeDriveModal()">キャンセル</button>
+      <button class="btn btn-drive" id="btn-upload-drive" onclick="downloadPdfAndOpenDrive()">📄 PDFを保存してDriveを開く</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// ===== 状態管理 =====
+let currentMeta = { date:'', name:'', bizname:'', insuredName:'', docType:'' };
+
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('drag-over'); handleFiles(e.dataTransfer.files); });
+fileInput.addEventListener('change', () => handleFiles(fileInput.files));
+
+function resetAll() {
+  document.getElementById('result-area').style.display = 'none';
+  document.getElementById('drop-zone').style.display = 'block';
+  document.getElementById('docs-container').innerHTML = '';
+  document.getElementById('summary-bar').innerHTML = '';
+  fileInput.value = '';
+  currentMeta = { date:'', name:'', bizname:'', docType:'' };
+}
+
+// ===== ファイル名生成 =====
+function buildFilename() {
+  const d = currentMeta.date.replace(/[^\d]/g,'').slice(0,8) || formatToday();
+  // 優先順位：被保険者名 > 担当者名 > 会社名
+  const person = sanitize(currentMeta.insuredName || currentMeta.name || currentMeta.bizname || '不明');
+  const type = sanitize(currentMeta.docType || '公文書');
+  return `${d}_${person}_${type}.html`;
+}
+function sanitize(s) { return s.replace(/[\\/:*?"<>|　\s]/g,'').slice(0,20); }
+function formatToday() {
+  const d = new Date(); 
+  return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+}
+
+// ===== PDF生成・ダウンロード =====
+async function downloadPdf() {
+  const btn = document.getElementById('btn-download');
+  btn.textContent = '⏳ PDF生成中...'; btn.disabled = true;
+  try { await generateAndDownloadPdf(); }
+  finally { btn.textContent = '📄 PDFとして保存'; btn.disabled = false; }
+}
+
+async function generateAndDownloadPdf(returnBlob = false) {
+  if (!window.jspdf) {
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+  }
+  const { jsPDF } = window.jspdf;
+  const container = document.getElementById('docs-container');
+  const canvas = await html2canvas(container, { scale:1.5, useCORS:true, backgroundColor:'#f0f2f5' });
+  const imgData = canvas.toDataURL('image/jpeg', 0.85);
+  const pdf = new jsPDF({ orientation:'p', unit:'mm', format:'a4' });
+  const pw = pdf.internal.pageSize.getWidth();
+  const ph = pdf.internal.pageSize.getHeight();
+  const ih = canvas.height * (pw / canvas.width);
+  let posY = 0, remaining = ih, page = 0;
+  while (remaining > 0) {
+    if (page > 0) pdf.addPage();
+    pdf.addImage(imgData, 'JPEG', 0, -posY, pw, ih);
+    posY += ph; remaining -= ph; page++;
+  }
+  if (returnBlob) return pdf.output('blob');
+  pdf.save(buildFilename().replace('.html', '.pdf'));
+}
+
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    if (document.querySelector(`script[src="${src}"]`)) { res(); return; }
+    const s = document.createElement('script');
+    s.src = src; s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
+}
+
+// ===== Gドライブ保存 =====
+const FOLDER_KEY = 'gdriveFolderId';
+
+function showDriveModal() {
+  document.getElementById('modal-fname').textContent = buildFilename().replace('.html', '.pdf');
+  const saved = localStorage.getItem(FOLDER_KEY) || '';
+  document.getElementById('folder-id-input').value = saved;
+  const badge = document.getElementById('folder-saved-badge');
+  badge.textContent = saved ? '✅ フォルダを記憶済み' : '';
+  badge.style.display = saved ? 'block' : 'none';
+  document.getElementById('drive-status').style.display = 'none';
+  document.getElementById('drive-modal').classList.add('show');
+}
+function closeDriveModal() { document.getElementById('drive-modal').classList.remove('show'); }
+
+function saveFolderId() {
+  const val = document.getElementById('folder-id-input').value.trim();
+  // URLが貼られた場合はIDだけ抽出
+  const m = val.match(/folders\/([a-zA-Z0-9_-]+)/);
+  const id = m ? m[1] : val;
+  if (id) {
+    localStorage.setItem(FOLDER_KEY, id);
+    document.getElementById('folder-id-input').value = id;
+    const badge = document.getElementById('folder-saved-badge');
+    badge.textContent = '✅ フォルダを記憶しました';
+    badge.style.display = 'block';
+  }
+}
+
+function openDrive() {
+  const fid = document.getElementById('folder-id-input').value.trim() || localStorage.getItem(FOLDER_KEY);
+  const url = fid ? `https://drive.google.com/drive/folders/${fid}` : 'https://drive.google.com/drive/my-drive';
+  window.open(url, '_blank');
+}
+
+async function downloadPdfAndOpenDrive() {
+  const btn = document.getElementById('btn-upload-drive');
+  const status = document.getElementById('drive-status');
+  btn.disabled = true; btn.textContent = '⏳ PDF生成中...';
+  status.style.display = 'block'; status.style.color = '#555'; status.textContent = 'PDFを生成しています...';
+  try {
+    await generateAndDownloadPdf();
+    const fid = document.getElementById('folder-id-input').value.trim() || localStorage.getItem(FOLDER_KEY);
+    const url = fid ? `https://drive.google.com/drive/folders/${fid}` : 'https://drive.google.com/drive/my-drive';
+    status.style.color = '#34a853';
+    status.innerHTML = `✅ PDFをダウンロードしました。<br>Driveにドロップして保存してください。<br><a href="${url}" target="_blank" style="color:#1a73e8;font-weight:bold;">📂 保存先フォルダを開く →</a>`;
+  } catch(e) {
+    status.style.color = '#c00'; status.textContent = '❌ エラー: ' + e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = '📄 PDFを保存してDriveを開く';
+  }
+}
+
+// ===== ZIP解析 =====
+async function handleFiles(files) {
+  if (!files || !files.length) return;
+  document.getElementById('drop-zone').style.display = 'none';
+  document.getElementById('loading').style.display = 'block';
+  const allDocs = [];
+  for (const f of files) {
+    try { allDocs.push(...await processZip(f)); }
+    catch(e) { allDocs.push({ type:'error', filename:f.name, message:e.message }); }
+  }
+  document.getElementById('loading').style.display = 'none';
+  renderDocs(allDocs, files);
+}
+
+async function processZip(file) {
+  const zip = await JSZip.loadAsync(await file.arrayBuffer());
+  const entries = {};
+  const innerZips = [];
+  zip.forEach((path, entry) => {
+    if (!entry.dir) {
+      if (path.endsWith('.zip')) innerZips.push(entry);
+      else entries[path.split('/').pop()] = entry;
+    }
+  });
+  for (const iz of innerZips) {
+    const iz2 = await JSZip.loadAsync(await iz.async('arraybuffer'));
+    iz2.forEach((path, entry) => { if (!entry.dir) entries[path.split('/').pop()] = entry; });
+  }
+
+  const docs = [];
+  const kagamiKey = Object.keys(entries).find(k => /^\d{18}\.xml$/.test(k));
+  if (kagamiKey) docs.push({ type:'kagami', content: await entries[kagamiKey].async('string') });
+
+  if (entries['henrei.xml']) {
+    docs.push({ type:'henrei_xml', content: await entries['henrei.xml'].async('string') });
+  } else if (entries['henrei.pdf']) {
+    docs.push({ type:'henrei_pdf', content: await entries['henrei.pdf'].async('arraybuffer') });
+  }
+
+  const formKey = Object.keys(entries).find(k => /^\d+\.xml$/.test(k) && k !== (kagamiKey||''));
+  if (formKey) {
+    const xmlContent = await entries[formKey].async('string');
+    const xslKey = formKey.replace('.xml','.xsl');
+    const xslContent = entries[xslKey] ? await entries[xslKey].async('string') : '';
+    const formTitle = extractXslTitle(xslContent) || formKey;
+    docs.push({ type:'generic_xml', content:xmlContent, xslContent, formTitle, formCode:formKey.replace('.xml','') });
+  }
+
+  if (!docs.length) docs.push({ type:'error', filename:file.name, message:'対応するファイルが見つかりませんでした。' });
+  return docs;
+}
+
+function extractXslTitle(xslText) {
+  const m = xslText.match(/<title>([^<]+)<\/title>/i);
+  return m ? m[1].trim() : null;
+}
+
+// ===== メタ情報抽出 =====
+function extractMeta(docs) {
+  const meta = { date:'', name:'', bizname:'', docType:'' };
+  for (const doc of docs) {
+    if (doc.type === 'kagami') {
+      const d = parseXML(doc.content);
+      meta.bizname = meta.bizname || (d.querySelector('TO AFF') ? d.querySelector('TO AFF').textContent.trim() : '');
+      meta.name    = meta.name    || (d.querySelector('TO n')   ? d.querySelector('TO n').textContent.trim()   : '');
+      if (!meta.date) {
+        const raw = gv(d,'DATE'); // 令和08年03月23日 or 20260323
+        meta.date = parseJpDate(raw);
+      }
+      meta.docType = meta.docType || gv(d,'APPTITLE') || gv(d,'TITLE');
+    }
+    if (doc.type === 'henrei_xml') {
+      const d = parseXML(doc.content);
+      meta.insuredName = meta.insuredName || gv(d,'送付先氏名_名称');
+      meta.bizname = meta.bizname || gv(d,'送付先氏名_名称');
+      if (!meta.date) meta.date = parseJpDate(gv(d,'通知年月日'));
+      meta.docType = meta.docType || '返戻のお知らせ';
+    }
+    if (doc.type === 'generic_xml') {
+      const d = parseXML(doc.content);
+      meta.bizname = meta.bizname || gv(d,'事業所名称_送付先');
+      meta.name    = meta.name    || gv(d,'事業主氏名_送付先');
+      meta.insuredName = meta.insuredName || gv(d,'被保険者漢字氏名');
+      if (!meta.date) meta.date = parseJpDate(gv(d,'通知年月日'));
+      meta.docType = meta.docType || doc.formTitle;
+    }
+  }
+  return meta;
+}
+
+function parseJpDate(s) {
+  if (!s) return '';
+  // 令和08年03月23日 → 20260323
+  const m = s.match(/令和\s*(\d+)年\s*(\d+)月\s*(\d+)日/);
+  if (m) {
+    const y = 2018 + parseInt(m[1]);
+    return `${y}${m[2].padStart(2,'0')}${m[3].padStart(2,'0')}`;
+  }
+  // 数字のみ
+  const n = s.replace(/[^\d]/g,'');
+  return n.slice(0,8);
+}
+
+// ===== 描画 =====
+function renderDocs(docs, files) {
+  const container = document.getElementById('docs-container');
+  document.getElementById('result-title').textContent = `${files.length}件のZIPを読み込みました`;
+  container.innerHTML = '';
+  document.getElementById('result-area').style.display = 'block';
+
+  // メタ情報を抽出してサマリー表示
+  currentMeta = extractMeta(docs);
+  renderSummary(currentMeta);
+
+  for (const doc of docs) {
+    const card = document.createElement('div');
+    card.className = 'doc-card';
+    if (doc.type === 'kagami') {
+      card.innerHTML = buildKagami(doc.content);
+    } else if (doc.type === 'henrei_xml') {
+      card.innerHTML = buildHenreiXml(doc.content);
+    } else if (doc.type === 'henrei_pdf') {
+      card.innerHTML = buildPdfShell('返戻票', '届書等の補正に関するお願い（PDF）');
+      container.appendChild(card);
+      loadPdf(doc.content, card);
+      continue;
+    } else if (doc.type === 'generic_xml') {
+      card.innerHTML = buildGenericXml(doc.content, doc.formTitle);
+      // PDF印刷ボタンをヘッダーに追加
+      if (doc.xslContent) {
+        const hdr = card.querySelector('.doc-card-header');
+        if (hdr) {
+          const btn = document.createElement('button');
+          btn.textContent = '🖨️ PDFで印刷';
+          btn.style.cssText = 'margin-left:auto;padding:4px 14px;background:rgba(255,255,255,0.2);color:white;border:1px solid rgba(255,255,255,0.4);border-radius:5px;font-size:12px;cursor:pointer;font-family:"Yu Gothic",sans-serif;';
+          btn.addEventListener('mouseenter', () => btn.style.background = 'rgba(255,255,255,0.35)');
+          btn.addEventListener('mouseleave', () => btn.style.background = 'rgba(255,255,255,0.2)');
+          const xmlText = doc.content;
+          const xslText = doc.xslContent;
+          btn.onclick = () => openXsltPrintWindow(xmlText, xslText, doc.formTitle);
+          hdr.appendChild(btn);
+        }
+      }
+    } else {
+      card.innerHTML = `<div class="error-msg">⚠️ ${esc(doc.filename||'')}：${esc(doc.message)}</div>`;
+    }
+    container.appendChild(card);
+  }
+}
+
+function renderSummary(meta) {
+  const bar = document.getElementById('summary-bar');
+  const fname = buildFilename();
+  const displayDate = meta.date ? `${meta.date.slice(0,4)}/${meta.date.slice(4,6)}/${meta.date.slice(6,8)}` : '—';
+  bar.innerHTML = `
+    <div class="summary-item">
+      <span class="summary-label">通知日</span>
+      <span class="summary-value">${esc(displayDate)}</span>
+    </div>
+    <div class="divider"></div>
+    ${meta.bizname ? `
+    <div class="summary-item">
+      <span class="summary-label">会社・事業所名</span>
+      <span class="summary-value">${esc(meta.bizname)}</span>
+    </div>
+    <div class="divider"></div>` : ''}
+    ${meta.insuredName ? `
+    <div class="summary-item">
+      <span class="summary-label">被保険者氏名</span>
+      <span class="summary-value" style="color:#c00">${esc(meta.insuredName)}</span>
+    </div>
+    <div class="divider"></div>` : meta.name ? `
+    <div class="summary-item">
+      <span class="summary-label">担当者名</span>
+      <span class="summary-value small">${esc(meta.name)}</span>
+    </div>
+    <div class="divider"></div>` : ''}
+    <div class="summary-item">
+      <span class="summary-label">帳票種別</span>
+      <span class="summary-value small">${esc(meta.docType||'—')}</span>
+    </div>
+    <div class="divider"></div>
+    <div class="summary-item">
+      <span class="summary-label">保存ファイル名</span>
+      <div class="filename-preview">📄 ${esc(fname)}</div>
+    </div>`;
+}
+
+// ===== PDF =====
+function buildPdfShell(type, title) {
+  return `
+<div class="doc-card-header"><span class="doc-type">${esc(type)}</span><span class="doc-title">${esc(title)}</span></div>
+<div class="pdf-wrap">
+  <div class="pdf-toolbar">
+    <button onclick="zoomIn(this)">＋ 拡大</button>
+    <button onclick="zoomOut(this)">－ 縮小</button>
+    <span class="zlabel">100%</span>
+  </div>
+  <div class="pdf-pages"><div class="pdf-loading">⏳ PDFを読み込み中...</div></div>
+</div>`;
+}
+async function loadPdf(buf, card) {
+  const pagesDiv = card.querySelector('.pdf-pages');
+  try {
+    const pdf = await pdfjsLib.getDocument({ data:buf }).promise;
+    pagesDiv._pdf = pdf; pagesDiv.dataset.scale = '1.5'; pagesDiv.innerHTML = '';
+    for (let i = 1; i <= pdf.numPages; i++) await renderPdfPage(pdf, i, pagesDiv);
+  } catch(e) { pagesDiv.innerHTML = `<div class="error-msg">PDF表示エラー: ${esc(e.message)}</div>`; }
+}
+async function renderPdfPage(pdf, num, pagesDiv) {
+  const s = parseFloat(pagesDiv.dataset.scale)||1.5;
+  const page = await pdf.getPage(num);
+  const vp = page.getViewport({scale:s});
+  let wrap = pagesDiv.querySelector(`[data-page="${num}"]`);
+  if (!wrap) { wrap=document.createElement('div'); wrap.className='pdf-page-wrap'; wrap.dataset.page=num; pagesDiv.appendChild(wrap); }
+  let canvas = wrap.querySelector('canvas');
+  if (!canvas) { canvas=document.createElement('canvas'); wrap.appendChild(canvas); }
+  canvas.width=vp.width; canvas.height=vp.height;
+  await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;
+}
+async function reRenderPdf(pagesDiv) {
+  if (!pagesDiv._pdf) return;
+  for (let i=1; i<=pagesDiv._pdf.numPages; i++) await renderPdfPage(pagesDiv._pdf, i, pagesDiv);
+}
+function zoomIn(btn) { adjustZoom(btn,+0.25); }
+function zoomOut(btn) { adjustZoom(btn,-0.25); }
+function adjustZoom(btn,d) {
+  const pagesDiv = btn.closest('.pdf-wrap').querySelector('.pdf-pages');
+  let s = Math.max(0.5, Math.min(3, parseFloat(pagesDiv.dataset.scale)+d));
+  pagesDiv.dataset.scale=s;
+  btn.closest('.pdf-toolbar').querySelector('.zlabel').textContent=Math.round(s/1.5*100)+'%';
+  reRenderPdf(pagesDiv);
+}
+
+// ===== XSLT変換 → 印刷ウィンドウ =====
+function openXsltPrintWindow(xmlText, xslText, title) {
+  // ブラウザのXSLTProcessorでXML+XSLを変換
+  const parser = new DOMParser();
+  const xmlClean = xmlText.replace(/^\uFEFF/,'').replace(/<\?xml-stylesheet[^?]*\?>/g,'');
+
+  // XSL内のCSSコメント <!-- --> をCSSブロック内からだけ除去（XSLTパーサが誤認するため）
+  const xslClean = xslText
+    .replace(/^\uFEFF/,'')
+    // <style>～</style> 内の <!--...--> コメントを除去
+    .replace(/(<style[^>]*>)([\s\S]*?)(<\/style>)/gi, (_, open, body, close) => {
+      return open + body.replace(/<!--[\s\S]*?-->/g, '') + close;
+    });
+
+  const xmlDoc = parser.parseFromString(xmlClean, 'application/xml');
+  const xslDoc = parser.parseFromString(xslClean, 'application/xml');
+
+  let resultHtml = '';
+  try {
+    const proc = new XSLTProcessor();
+    proc.importStylesheet(xslDoc);
+    const frag = proc.transformToFragment(xmlDoc, document);
+    const div = document.createElement('div');
+    div.appendChild(frag);
+
+    // 外側ラッパー（<table border="0" width="100%">）を外してtd直下の中身だけ取り出す
+    const outerTable = div.querySelector('table[border="0"]');
+    if (outerTable) {
+      const td = outerTable.querySelector('td');
+      if (td) {
+        outerTable.replaceWith(...td.childNodes);
+      }
+    }
+
+    // br.kaipage を除去
+    div.querySelectorAll('br.kaipage').forEach(el => el.remove());
+
+    // page-break div はそのまま残す（印刷改ページに使う）
+
+    // 「機構からのお知らせ」のpre.oshiraseをdivに変換して折り返し表示
+    div.querySelectorAll('pre.oshirase').forEach(pre => {
+      const d = document.createElement('div');
+      d.className = 'oshirase';
+      d.style.cssText = 'white-space:pre-wrap;word-break:break-all;overflow-wrap:break-word;font-size:7pt;line-height:11px;vertical-align:top;text-align:left;font-family:"Yu Mincho","游明朝",serif;';
+      d.textContent = pre.textContent;
+      pre.replaceWith(d);
+    });
+
+    resultHtml = div.innerHTML;
+  } catch(e) {
+    alert('XSLT変換エラー: ' + e.message); return;
+  }
+
+  const win = window.open('', '_blank', 'width=800,height=900');
+  win.document.write(`<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>${title || '決定通知書'}</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; padding:20px; font-family:"Yu Mincho","游明朝",serif; background:#e0e0e0; }
+
+  /* 画面表示：A4枠をスケールして中央に */
+  .content-wrap {
+    margin-top:60px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:12px;
+  }
+  /* XSLが生成するtable.outlineはwidth:640px height:940px固定 */
+  /* A4 = 210mm × 297mm ≒ 794px × 1123px（96dpi）*/
+  /* 余白込みで640pxをA4幅に収める scale = 754/640 ≈ 1.178 */
+  table.outline {
+    transform-origin: top left;
+    transform: scale(1.178);
+    margin-bottom: calc(940px * 0.178 + 20px) !important;
+    margin-right: calc(640px * 0.178) !important;
+    background: white;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+  }
+  /* 改ページdivは画面上では非表示 */
+  div[style*="page-break-after"] { display:none; }
+
+  @media print {
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { margin:0; padding:0; background:white; }
+    .no-print { display:none !important; }
+    .content-wrap { margin-top:0; gap:0; }
+    @page { margin:8mm; size:A4; }
+
+    br.kaipage { display:none !important; }
+
+    /* page-break-after:alwaysのdivで改ページ */
+    div[style*="page-break-after"] {
+      display: block !important;
+      height: 0 !important;
+      page-break-after: always !important;
+    }
+
+    table.outline {
+      transform: none !important;
+      margin: 0 auto !important;
+      box-shadow: none !important;
+      page-break-inside: avoid;
+      width: 640px !important;
+      height: 900px !important;
+      zoom: 1.147;
+      display: block;
+    }
+  }
+
+  .print-toolbar {
+    position:fixed; top:0; left:0; right:0; background:#1a3a5c; color:white;
+    padding:10px 20px; display:flex; align-items:center; gap:12px; z-index:100;
+    font-family:"Yu Gothic",sans-serif; font-size:13px;
+  }
+  .print-toolbar button {
+    padding:6px 18px; border:none; border-radius:5px; cursor:pointer;
+    font-family:"Yu Gothic",sans-serif; font-size:13px;
+  }
+  .print-btn { background:#34a853; color:white; font-weight:bold; }
+  .close-btn { background:rgba(255,255,255,0.2); color:white; }
+</style>
+</head>
+<body>
+<div class="no-print print-toolbar">
+  <span>📄 ${title || '決定通知書'}</span>
+  <button class="print-btn" onclick="window.print()">🖨️ PDF保存 / 印刷</button>
+  <button class="close-btn" onclick="window.close()">✕ 閉じる</button>
+  <span style="font-size:11px;opacity:0.7;">「PDFに保存」を選択するとPDFとして保存できます</span>
+</div>
+<div class="content-wrap">
+${resultHtml}
+</div>
+</body>
+</html>`);
+  win.document.close();
+}
+
+
+function parseXML(text) {
+  text = text.replace(/^\uFEFF/,'').replace(/<\?xml-stylesheet[^?]*\?>/g,'');
+  return new DOMParser().parseFromString(text,'application/xml');
+}
+function gv(doc,tag) { const el=doc.querySelector(tag)||doc.getElementsByTagName(tag)[0]; return el?el.textContent.trim():''; }
+function tv(el,tag) { const f=el.getElementsByTagName(tag)[0]; return f?f.textContent.trim():''; }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function fmt(s) { return esc(s.replace(/<br\/?>/gi,'\n')).replace(/\n/g,'<br>'); }
+
+// ===== 表紙 =====
+function buildKagami(xmlText) {
+  let doc; try{doc=parseXML(xmlText);}catch(e){return '<div class="error-msg">XML解析エラー（表紙）</div>';}
+  const toAff=doc.querySelector('TO AFF')?doc.querySelector('TO AFF').textContent:'';
+  const toName=doc.querySelector('TO n')?doc.querySelector('TO n').textContent:'';
+  const authAff=doc.querySelector('AUTHOR AFF')?doc.querySelector('AUTHOR AFF').textContent:'';
+  const authN=doc.querySelector('AUTHOR n')?doc.querySelector('AUTHOR n').textContent:'';
+  const appTitle=gv(doc,'APPTITLE');
+  let mainHtml='';
+  doc.querySelectorAll('MAINTXT P').forEach(p=>{mainHtml+=`<p>${esc(p.textContent.trim())}</p>`;});
+  return `
+<div class="doc-card-header"><span class="doc-type">表紙</span><span class="doc-title">${esc(appTitle||gv(doc,'TITLE'))}</span></div>
+<div class="kagami-body">
+  <div class="kagami-meta">文書番号：${esc(gv(doc,'DOCNO'))}　日付：${esc(gv(doc,'DATE'))}</div>
+  <div class="kagami-to"><div class="kaff">${esc(toAff)}</div><div class="kname">${esc(toName)} ${esc(gv(doc,'HONORIFC'))}</div></div>
+  <div class="kagami-author">${esc(authAff)}<br>${esc(authN)}</div>
+  <div class="kagami-main">${mainHtml}</div>
+</div>`;
+}
+
+// ===== 返戻票XML =====
+function buildHenreiXml(xmlText) {
+  let doc; try{doc=parseXML(xmlText);}catch(e){return '<div class="error-msg">XML解析エラー（返戻票）</div>';}
+  const v={
+    郵便番号:gv(doc,'送付先郵便番号'),住所:gv(doc,'送付先住所'),氏名:gv(doc,'送付先氏名_名称'),敬称:gv(doc,'敬称'),
+    管理番号:gv(doc,'通知管理番号'),管理番号枝番:gv(doc,'通知管理番号枝番'),年月日:gv(doc,'通知年月日'),
+    タイトル:gv(doc,'帳票タイトル'),内容1:gv(doc,'表示内容1'),内容2:gv(doc,'表示内容2'),
+    照会番号:gv(doc,'照会番号'),期限:gv(doc,'再提出期限'),届書名:gv(doc,'届書名'),
+    理由:gv(doc,'理由'),通信欄:gv(doc,'通信欄'),
+    元郵便番号:gv(doc,'返戻元郵便番号'),元住所:gv(doc,'返戻元住所'),元名称:gv(doc,'返戻元名称'),元電話:gv(doc,'返戻元問合せ先電話番号'),
+  };
+  return `
+<div class="doc-card-header"><span class="doc-type">返戻票</span><span class="doc-title">届書等の補正に関するお願い</span></div>
+<div class="henrei-body">
+  <div class="addr-block">
+    <div class="postal">〒 ${esc(v.郵便番号)}</div>
+    <div class="address">${esc(v.住所)}</div>
+    <div class="name">${esc(v.氏名)} ${esc(v.敬称)}</div>
+    <div class="ref-no">管理番号：${esc(v.管理番号)} - ${esc(v.管理番号枝番)}</div>
+  </div>
+  <div class="henrei-section-title">${esc(v.タイトル)}</div>
+  <div class="henrei-intro">${fmt(v.内容1)}</div>
+  ${v.内容2?`<div class="henrei-notes">${fmt(v.内容2)}</div>`:''}
+  <div class="info-grid">
+    <div class="lbl">照会番号</div><div class="val">${esc(v.照会番号)}</div>
+    ${v.期限?`<div class="lbl row-deadline">再提出期限</div><div class="val row-deadline">⚠️ ${esc(v.期限)}</div>`:''}
+    <div class="lbl">届書名</div><div class="val">${esc(v.届書名)}</div>
+    <div class="lbl row-alert">理　由</div><div class="val row-alert">❌ ${esc(v.理由)}</div>
+    <div class="lbl">通信欄</div><div class="val">${fmt(v.通信欄)}</div>
+  </div>
+  <div class="date-row">${esc(v.年月日)}&nbsp;&nbsp;<span class="org-name">日本年金機構</span></div>
+  <div class="sender-block">
+    <div class="slabel">問い合わせ先</div>
+    〒 ${esc(v.元郵便番号)}<br>${esc(v.元住所)}<br>
+    <span class="sname">${esc(v.元名称)}</span><br>
+    <span class="stel">📞 ${esc(v.元電話)}</span>
+  </div>
+</div>`;
+}
+
+// ===== 汎用帳票XML =====
+function buildGenericXml(xmlText, formTitle) {
+  let doc; try{doc=parseXML(xmlText);}catch(e){return '<div class="error-msg">XML解析エラー（帳票）</div>';}
+  const root=doc.documentElement;
+  const recordTags=[...new Set([...root.children].map(c=>c.tagName).filter(t=>!t.startsWith('非表示')))];
+  let html=`<div class="doc-card-header"><span class="doc-type">決定通知書</span><span class="doc-title">${esc(formTitle)}</span></div><div class="generic-body">`;
+  for (const tag of recordTags) {
+    [...root.getElementsByTagName(tag)].forEach(rec => { html+=buildRecord(rec,formTitle); });
+  }
+  return html+'</div>';
+}
+
+function buildRecord(rec, formTitle) {
+  const v = n => tv(rec,n);
+  const deps=[];
+  const sp={氏名:v('被扶養者漢字氏名_配偶者'),生年月日:v('生年月日_配偶者'),性別:v('性別_配偶者'),続柄:v('続柄_配偶者'),異動:v('異動内容_配偶者'),年月日:v('被扶養者年月日_配偶者'),区分:v('認定区分_配偶者')};
+  if(sp.氏名) deps.push(sp);
+  for(let i=1;i<=5;i++){const n=String(i).padStart(2,'0');const d={氏名:v(`被扶養者漢字氏名_配偶者以外${n}`),生年月日:v(`生年月日_配偶者以外${n}`),性別:v(`性別_配偶者以外${n}`),続柄:v(`続柄_配偶者以外${n}`),異動:v(`異動内容_配偶者以外${n}`),年月日:v(`被扶養者年月日_配偶者以外${n}`),区分:v(`認定区分_配偶者以外${n}`)};if(d.氏名)deps.push(d);}
+
+  const tagN = s => s==='認定'?`<span class="tag tag-nintei">✅ 認定</span>`:s==='不認定'?`<span class="tag row-alert">❌ 不認定</span>`:s?`<span class="tag tag-other">${esc(s)}</span>`:'';
+  const tagI = s => s==='該当'?`<span class="tag tag-gaito">該当</span>`:s==='非該当'?`<span class="tag row-alert">非該当</span>`:s?`<span>${esc(s)}</span>`:'';
+
+  const depRows = deps.map(d=>`<tr><td>${esc(d.氏名)}</td><td>${esc(d.生年月日)}</td><td>${esc(d.性別)}</td><td>${esc(d.続柄)}</td><td>${tagI(d.異動)}</td><td>${esc(d.年月日)}</td><td>${tagN(d.区分)}</td></tr>`).join('');
+
+  return `
+  <div class="generic-addr">
+    <div class="to-block">
+      ${v('事業所郵便番号_送付先')?`<div class="postal">〒 ${esc(v('事業所郵便番号_送付先'))}</div>`:''}
+      ${v('事業所所在地_送付先')?`<div class="addr">${esc(v('事業所所在地_送付先'))}</div>`:''}
+      ${v('事業所名称_送付先')?`<div class="bizname">${esc(v('事業所名称_送付先'))}</div>`:''}
+      ${v('事業主氏名_送付先')?`<div class="person">${esc(v('事業主氏名_送付先'))} 様</div>`:''}
+    </div>
+    <div class="meta-block">
+      ${v('通知年月日')?`<div>${esc(v('通知年月日'))}</div>`:''}
+      ${v('年金事務所名')?`<div>${esc(v('年金事務所名'))}</div>`:''}
+      ${v('到達番号_項目')?`<div>到達番号：${esc(v('到達番号_項目'))}</div>`:''}
+      ${v('通知管理番号')?`<div>管理番号：${esc(v('通知管理番号'))}${v('通知管理番号枝番')?'-'+esc(v('通知管理番号枝番')):''}</div>`:''}
+    </div>
+  </div>
+  <div class="generic-title">${esc(formTitle)}</div>
+  <div class="insured-section">
+    <div class="insured-header">被保険者情報</div>
+    <div class="insured-grid">
+      ${v('事業所整理記号_郡市区記号')||v('事業所整理記号_事業所記号')?`<div class="igcell"><div class="igl">整理記号</div><div class="igv">${esc(v('事業所整理記号_郡市区記号'))}-${esc(v('事業所整理記号_事業所記号'))}</div></div>`:''}
+      ${v('被保険者整理番号')?`<div class="igcell"><div class="igl">整理番号</div><div class="igv">${esc(v('被保険者整理番号'))}</div></div>`:''}
+      ${v('被保険者漢字氏名')?`<div class="igcell"><div class="igl">被保険者氏名</div><div class="igv">${esc(v('被保険者漢字氏名'))}</div></div>`:''}
+      ${v('生年月日')?`<div class="igcell"><div class="igl">生年月日</div><div class="igv">${esc(v('生年月日'))}</div></div>`:''}
+      ${v('性別')?`<div class="igcell"><div class="igl">性別</div><div class="igv">${esc(v('性別'))}</div></div>`:''}
+    </div>
+  </div>
+  ${deps.length?`<table class="dependents-table"><thead><tr><th>氏名</th><th>生年月日</th><th>性別</th><th>続柄</th><th>異動内容</th><th>被扶養者年月日</th><th>認定区分</th></tr></thead><tbody>${depRows}</tbody></table>`:''}
+  ${v('機構からのお知らせ')?`<div class="oshirase-block"><div class="oshirase-label">機構からのお知らせ</div>${esc(v('機構からのお知らせ'))}</div>`:''}
+  ${v('教示文')?`<div class="kyoshi-block"><div class="kyoshi-label">教示文（不服申立て等）</div>${esc(v('教示文'))}</div>`:''}`;
+}
+</script>
+</body>
+</html>
